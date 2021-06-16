@@ -17,7 +17,8 @@ var (
 
 	androidEnv map[string][]string // android arch -> []string
 
-	darwinEnv map[string][]string
+	iosEnv map[string][]string
+	macosEnv map[string][]string
 
 	androidArmNM string
 	darwinArmNM  string
@@ -31,6 +32,8 @@ func allArchs(targetOS string) []string {
 		return []string{"arm64", "amd64"}
 	case "android":
 		return []string{"arm", "arm64", "386", "amd64"}
+	case "macos":
+		return []string{"amd64"}
 	default:
 		panic(fmt.Sprintf("unexpected target OS: %s", targetOS))
 	}
@@ -140,7 +143,8 @@ func envInit() (err error) {
 	}
 
 	darwinArmNM = "nm"
-	darwinEnv = make(map[string][]string)
+	// ios
+	iosEnv = make(map[string][]string)
 	for _, arch := range allArchs("ios") {
 		var env []string
 		var err error
@@ -172,7 +176,40 @@ func envInit() (err error) {
 			"CGO_LDFLAGS="+cflags+" -arch "+archClang(arch),
 			"CGO_ENABLED=1",
 		)
-		darwinEnv[arch] = env
+		iosEnv[arch] = env
+	}
+
+	// macos
+	macosEnv = make(map[string][]string)
+	for _, arch := range allArchs("macos") {
+		var env []string
+		var err error
+		var clang, cflags string
+		switch arch {
+		case "amd64":
+			clang, cflags, err = envClang("macosx")
+			cflags += " -mmacosx-version-min=" + buildMacOSVersion
+		default:
+			panic(fmt.Errorf("unknown GOARCH: %q", arch))
+		}
+		if err != nil {
+			return err
+		}
+
+		if bitcodeEnabled {
+			cflags += " -fembed-bitcode"
+		}
+		env = append(env,
+			"GOOS=darwin",
+			"GOARCH="+arch,
+			"CC="+clang,
+			"CXX="+clang+"++",
+			"CGO_CFLAGS="+cflags+" -arch "+archClang(arch),
+			"CGO_CXXFLAGS="+cflags+" -arch "+archClang(arch),
+			"CGO_LDFLAGS="+cflags+" -arch "+archClang(arch),
+			"CGO_ENABLED=1",
+		)
+		macosEnv[arch] = env
 	}
 
 	return nil
