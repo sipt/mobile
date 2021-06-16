@@ -127,13 +127,13 @@ func runBuildImpl(cmd *command) (*packages.Package, error) {
 		if err != nil {
 			return nil, err
 		}
-	case "darwin":
+	case "ios":
 		if !xcodeAvailable() {
 			return nil, fmt.Errorf("-target=ios requires XCode")
 		}
 		if pkg.Name != "main" {
 			for _, arch := range targetArchs {
-				if err := goBuild(pkg.PkgPath, darwinEnv[arch]); err != nil {
+				if err := goBuild(pkg.PkgPath, iosEnv[arch]); err != nil {
 					return nil, err
 				}
 			}
@@ -143,6 +143,25 @@ func runBuildImpl(cmd *command) (*packages.Package, error) {
 			return nil, fmt.Errorf("-target=ios requires -bundleid set")
 		}
 		nmpkgs, err = goIOSBuild(pkg, buildBundleID, targetArchs)
+		if err != nil {
+			return nil, err
+		}
+	case "macos":
+		if !xcodeAvailable() {
+			return nil, fmt.Errorf("-target=macos requires XCode")
+		}
+		if pkg.Name != "main" {
+			for _, arch := range targetArchs {
+				if err := goBuild(pkg.PkgPath, macosEnv[arch]); err != nil {
+					return nil, err
+				}
+			}
+			return pkg, nil
+		}
+		if buildBundleID == "" {
+			return nil, fmt.Errorf("-target=macos requires -bundleid set")
+		}
+		nmpkgs, err = goMacOSBuild(pkg, buildBundleID, targetArchs)
 		if err != nil {
 			return nil, err
 		}
@@ -226,6 +245,7 @@ var (
 	buildWork       bool        // -work
 	buildBundleID   string      // -bundleid
 	buildIOSVersion string      // -iosversion
+	buildMacOSVersion string    // -macosversion
 	buildAndroidAPI int         // -androidapi
 	buildTags       stringsFlag // -tags
 )
@@ -237,6 +257,7 @@ func addBuildFlags(cmd *command) {
 	cmd.flag.StringVar(&buildTarget, "target", "android", "")
 	cmd.flag.StringVar(&buildBundleID, "bundleid", "", "")
 	cmd.flag.StringVar(&buildIOSVersion, "iosversion", "7.0", "")
+	cmd.flag.StringVar(&buildMacOSVersion, "macosversion", "10.6", "")
 	cmd.flag.IntVar(&buildAndroidAPI, "androidapi", minAndroidAPI, "")
 
 	cmd.flag.BoolVar(&buildA, "a", false, "")
@@ -295,7 +316,7 @@ func goCmdAt(at string, subcmd string, srcs []string, env []string, args ...stri
 	if err != nil {
 		return err
 	}
-	if targetOS == "darwin" {
+	if targetOS == "ios" {
 		tags = append(tags, "ios")
 	}
 	if len(tags) > 0 {
@@ -326,6 +347,10 @@ func goCmdAt(at string, subcmd string, srcs []string, env []string, args ...stri
 	cmd.Args = append(cmd.Args, srcs...)
 	cmd.Env = append([]string{}, env...)
 	cmd.Dir = at
+	fmt.Println(cmd.String())
+	fmt.Println(strings.Join(env, "\n"))
+	fmt.Println(at)
+	fmt.Println(strings.Repeat("=", 20))
 	return runCmd(cmd)
 }
 
@@ -348,7 +373,9 @@ func parseBuildTarget(buildTarget string) (os string, archs []string, _ error) {
 	archNames := []string{}
 	for i, p := range strings.Split(buildTarget, ",") {
 		osarch := strings.SplitN(p, "/", 2) // len(osarch) > 0
-		if osarch[0] != "android" && osarch[0] != "ios" {
+		switch osarch[0] {
+		case "android", "ios", "macos":
+		default:
 			return "", nil, fmt.Errorf(`unsupported os`)
 		}
 
@@ -377,11 +404,6 @@ func parseBuildTarget(buildTarget string) (os string, archs []string, _ error) {
 		return false
 	}
 
-	targetOS := os
-	if os == "ios" {
-		targetOS = "darwin"
-	}
-
 	seen := map[string]bool{}
 	for _, arch := range archNames {
 		if _, ok := seen[arch]; ok {
@@ -396,7 +418,7 @@ func parseBuildTarget(buildTarget string) (os string, archs []string, _ error) {
 	}
 
 	if all {
-		return targetOS, allArchs(os), nil
+		return os, allArchs(os), nil
 	}
-	return targetOS, archs, nil
+	return os, archs, nil
 }
